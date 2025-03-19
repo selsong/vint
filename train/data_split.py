@@ -28,6 +28,11 @@ def main(args: argparse.Namespace):
     # Randomly shuffle the names of the folders
     random.shuffle(folder_names)
 
+    # Limit the number of folders if specified
+    if args.num_folders is not None:
+        folder_names = folder_names[:args.num_folders]
+        print(f"Using {len(folder_names)} folders for the split")
+
     # Split the names of the folders into train and test sets
     split_index = int(args.split * len(folder_names))
     train_folder_names = folder_names[:split_index]
@@ -69,6 +74,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--data-splits-dir", "-o", default="vint_train/data/data_splits", help="Data splits directory"
+    )
+    parser.add_argument(
+        "--num-folders", "-n", type=int, help="Number of folders to use for the split (default: all folders)"
     )
     args = parser.parse_args()
     main(args)

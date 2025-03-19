@@ -22,9 +22,9 @@ from vint_train.data.data_utils import (
 class ViNT_Dataset(Dataset):
     def __init__(
         self,
-        data_folder: None,
-        data_split_folder: None,
-        dataset_name: None,
+        data_folder: str,
+        data_split_folder: str,
+        dataset_name: str,
         image_size: Tuple[int, int],
         waypoint_spacing: int,
         min_dist_cat: int,
@@ -41,14 +41,12 @@ class ViNT_Dataset(Dataset):
         normalize: bool = True,
         obs_type: str = "image",
         goal_type: str = "image",
-        single_video_mode: bool = True,
-        video_path = str,
     ):
         """
         Main ViNT dataset class
 
         Args:
-            data_folder (string): Directory with all the image data
+            data_folder (string): Directory with all the video data
             data_split_folder (string): Directory with filepaths.txt, a list of all trajectory names in the dataset split that are each seperated by a newline
             dataset_name (string): Name of the dataset [recon, go_stanford, scand, tartandrive, etc.]
             waypoint_spacing (int): Spacing between waypoints
@@ -64,31 +62,19 @@ class ViNT_Dataset(Dataset):
             normalize (bool): Whether to normalize the distances or actions
             goal_type (str): What data type to use for the goal. The only one supported is "image" for now.
         """
+        if data_folder is None or data_split_folder is None or dataset_name is None:
+            raise ValueError("data_folder needed")
+
+        self.data_folder = data_folder
+        self.data_split_folder = data_split_folder
+        self.dataset_name = dataset_name
         
-        self.single_video_mode = single_video_mode
-        self.video_path = video_path
-
-        if self.single_video_mode:
-            if self.video_path is None:
-                raise ValueError("video_path must be provided")
-
-            print(f"Proc single video: {self.video_path}")
-            self.data = self.set_single_video_mode(self.video_path)
-
-        else:
-            if data_folder is None or data_split_folder is None or dataset_name is None:
-                raise ValueError("data_folder needed")
-
-            self.data_folder = data_folder
-            self.data_split_folder = data_split_folder
-            self.dataset_name = dataset_name
-            
-            traj_names_file = os.path.join(data_split_folder, "traj_names.txt")
-            with open(traj_names_file, "r") as f:
-                file_lines = f.read()
-                self.traj_names = file_lines.split("\n")
-            if "" in self.traj_names:
-                self.traj_names.remove("")
+        traj_names_file = os.path.join(data_split_folder, "traj_names.txt")
+        with open(traj_names_file, "r") as f:
+            file_lines = f.read()
+            self.traj_names = file_lines.split("\n")
+        if "" in self.traj_names:
+            self.traj_names.remove("")
 
         self.image_size = image_size
         self.waypoint_spacing = waypoint_spacing
@@ -141,79 +127,6 @@ class ViNT_Dataset(Dataset):
             self.num_action_params = 3
         else:
             self.num_action_params = 2
-
-    def set_single_video_mode(self, video_path):
-        """
-        Configure the dataset to process a single video file instead of the entire dataset.
-        
-        Args:
-            video_path (str): Path to the video file to process
-        """
-        print(f"Setting dataset to single video mode: {video_path}")
-        
-        # Create a temporary trajectory name for this video
-        self.traj_names = ["single_video"]
-        
-        # Extract frames from the video
-        cap = cv2.VideoCapture(video_path)
-        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        
-        # Create synthetic trajectory data
-        traj_data = {
-            "position": np.zeros((frame_count, 2)),  # Placeholder positions
-            "yaw": np.zeros(frame_count),  # Placeholder yaw angles
-        }
-        
-        # Fill in positions based on frame index
-        for i in range(frame_count):
-            # Simple synthetic position data - moves forward with time
-            traj_data["position"][i] = [i / fps, 0]  # x increases with time, y is constant
-        
-        # Store in trajectory cache
-        self.trajectory_cache["single_video"] = traj_data
-        
-        # Extract and store frames in the cache
-        with lmdb.open("temp_video_cache.lmdb", map_size=2**40) as frame_cache:
-            with frame_cache.begin(write=True) as txn:
-                for frame_idx in range(frame_count):
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                        
-                    # Convert BGR to RGB
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    
-                    # Create a key for the frame
-                    frame_key = f"single_video_{frame_idx}".encode()
-                    
-                    # Encode frame as PNG
-                    _, buffer = cv2.imencode(".png", frame)
-                    txn.put(frame_key, buffer.tobytes())
-        
-        cap.release()
-        
-        # Update the frame cache to use the temporary one
-        if hasattr(self, "_frame_cache") and self._frame_cache is not None:
-            self._frame_cache.close()
-        self._frame_cache = lmdb.open("temp_video_cache.lmdb", readonly=True)
-        
-        # Rebuild index for single video
-        self.index_to_data = []
-        self.goals_index = []
-        
-        # Add all frames as potential goals
-        for i in range(frame_count):
-            self.goals_index.append(("single_video", i))
-        
-        # Build sample index
-        begin_time = self.context_size * self.waypoint_spacing
-        end_time = frame_count - self.end_slack - self.len_traj_pred * self.waypoint_spacing
-        for curr_time in range(begin_time, end_time):
-            max_goal_distance = min(self.max_dist_cat * self.waypoint_spacing, frame_count - curr_time - 1)
-            self.index_to_data.append(("single_video", curr_time, max_goal_distance))
-        
-        print(f"Single video mode: created {len(self.index_to_data)} samples from {frame_count} frames")
 
     def __getstate__(self):
         state = self.__dict__.copy()
