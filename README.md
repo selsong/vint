@@ -1,7 +1,7 @@
 # ViNT: A Foundation Model for Visual Navigation
 
 ### Credit to Dhruv Shah*, Ajay Sridhar*, Nitish Dashora*, Kyle Stachowicz, Kevin Black, Noriaki Hirose, Sergey Levine
-## Modified by Selina Song, testing for Zhou Lab @ UCLA
+#### Modified by Selina Song, testing for Zhou Lab @ UCLA
 
 [Project Page](https://visualnav-transformer.github.io) | [arXiV](https://arxiv.org/abs/2306.14846) | [Summary Video](https://www.youtube.com/watch?v=6kNex5dJ5sQ)
 
