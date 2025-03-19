@@ -22,9 +22,9 @@ from vint_train.data.data_utils import (
 class ViNT_Dataset(Dataset):
     def __init__(
         self,
-        data_folder: str,
-        data_split_folder: str,
-        dataset_name: str,
+        data_folder: None,
+        data_split_folder: None,
+        dataset_name: None,
         image_size: Tuple[int, int],
         waypoint_spacing: int,
         min_dist_cat: int,
@@ -41,6 +41,8 @@ class ViNT_Dataset(Dataset):
         normalize: bool = True,
         obs_type: str = "image",
         goal_type: str = "image",
+        single_video_mode: bool = True,
+        video_path = str,
     ):
         """
         Main ViNT dataset class
@@ -62,16 +64,31 @@ class ViNT_Dataset(Dataset):
             normalize (bool): Whether to normalize the distances or actions
             goal_type (str): What data type to use for the goal. The only one supported is "image" for now.
         """
-        self.data_folder = data_folder
-        self.data_split_folder = data_split_folder
-        self.dataset_name = dataset_name
         
-        traj_names_file = os.path.join(data_split_folder, "traj_names.txt")
-        with open(traj_names_file, "r") as f:
-            file_lines = f.read()
-            self.traj_names = file_lines.split("\n")
-        if "" in self.traj_names:
-            self.traj_names.remove("")
+        self.single_video_mode = single_video_mode
+        self.video_path = video_path
+
+        if self.single_video_mode:
+            if self.video_path is None:
+                raise ValueError("video_path must be provided")
+
+            print(f"Proc single video: {self.video_path}")
+            self.data = self.set_single_video_mode(self.video_path)
+
+        else:
+            if data_folder is None or data_split_folder is None or dataset_name is None:
+                raise ValueError("data_folder needed")
+
+            self.data_folder = data_folder
+            self.data_split_folder = data_split_folder
+            self.dataset_name = dataset_name
+            
+            traj_names_file = os.path.join(data_split_folder, "traj_names.txt")
+            with open(traj_names_file, "r") as f:
+                file_lines = f.read()
+                self.traj_names = file_lines.split("\n")
+            if "" in self.traj_names:
+                self.traj_names.remove("")
 
         self.image_size = image_size
         self.waypoint_spacing = waypoint_spacing

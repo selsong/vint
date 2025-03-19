@@ -8,32 +8,26 @@ import pdb
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, ConcatDataset
+from torch.utils.data import DataLoader, ConcatDataset, Subset
 from torch.optim import Adam, AdamW
 from torchvision import transforms
 import torch.backends.cudnn as cudnn
 from warmup_scheduler import GradualWarmupScheduler
 
-from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-from diffusers.optimization import get_scheduler
-
 """
 IMPORT YOUR MODEL HERE
-modified train.py to process 1 video instead of images
 """
-from vint_train.models.gnm.gnm import GNM
-from vint_train.models.vint.vint import ViNT
-from vint_train.models.vint.vit import ViT
-from vint_train.models.nomad.nomad import NoMaD, DenseNetwork
-from vint_train.models.nomad.nomad_vint import NoMaD_ViNT, replace_bn_with_gn
-from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
+import sys
+sys.path.append('/bigdata/selina/vint_release')
 
-
+from vint_train.models.gnm import GNM
+from vint_train.models.vint import ViNT
+from vint_train.models import vint
 from vint_train.data.vint_dataset import ViNT_Dataset
 from vint_train.training.train_eval_loop import (
     train_eval_loop,
-    train_eval_loop_nomad,
     load_model,
+    count_parameters,
 )
 
 
@@ -89,7 +83,11 @@ def main(config):
             context_type=config.get("context_type", "temporal"),
             normalize=config["normalize"],
             goal_type=config["goal_type"],
+            data_folder="../processed_recon/jackal_2019-09-09-18-52-15_18_r02/",
+            data_split_folder="../processed_recon/jackal_2019-09-09-18-52-15_18_r02/",
+            dataset_name="single_video"
         )
+        single_video_dataset.set_single_video_mode(video_path)
         # Replace the regular data loading with just this video
         train_dataset = [single_video_dataset]
         test_dataloaders = {"single_video": single_video_dataset}
