@@ -1,4 +1,4 @@
-import wandb
+# import wandb
 import os
 import numpy as np
 from typing import List, Optional, Dict
@@ -116,7 +116,7 @@ def train_eval_loop(
             "scheduler": scheduler
         }
         # log average eval loss
-        wandb.log({}, commit=False)
+        # wandb.log({}, commit=False)
 
         if scheduler is not None:
             # scheduler calls based on the type of scheduler
@@ -124,17 +124,17 @@ def train_eval_loop(
                 scheduler.step(np.mean(avg_total_test_loss))
             else:
                 scheduler.step()
-        wandb.log({
-            "avg_total_test_loss": np.mean(avg_total_test_loss),
-            "lr": optimizer.param_groups[0]["lr"],
-        }, commit=False)
+        # wandb.log({
+        #     "avg_total_test_loss": np.mean(avg_total_test_loss),
+        #     "lr": optimizer.param_groups[0]["lr"],
+        # }, commit=False)
 
         numbered_path = os.path.join(project_folder, f"{epoch}.pth")
         torch.save(checkpoint, latest_path)
         torch.save(checkpoint, numbered_path)  # keep track of model at every epoch
 
     # Flush the last set of eval logs
-    wandb.log({})
+    # wandb.log({})
     print()
 
 

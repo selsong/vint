@@ -175,12 +175,23 @@ class ViNT_Dataset(Dataset):
                         
                         # Extract all frames from video
                         cap = cv2.VideoCapture(video_path)
+                        if not cap.isOpened():
+                            print(f"Error opening video file: {video_path}")
+                            continue
+                            
                         frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                         
                         for frame_idx in range(frame_count):
                             ret, frame = cap.read()
                             if not ret:
                                 break
+                                
+                            # Ensure frame has correct shape
+                            if frame.shape != (height, width, 3):
+                                print(f"Warning: Frame {frame_idx} in {traj_name} has incorrect shape {frame.shape}, expected ({height}, {width}, 3)")
+                                continue
                                 
                             # Convert BGR to RGB
                             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -256,36 +267,47 @@ class ViNT_Dataset(Dataset):
             with open(index_to_data_path, "wb") as f:
                 pickle.dump((self.index_to_data, self.goals_index), f)
 
-    def _load_frame(self, trajectory_name, time):
-        """
-        Load a single frame from the video at the specified time
-        """
-        frame_key = f"{trajectory_name}_{time}".encode()
-        
+    def _load_frame(self, traj_name: str, frame_idx: int) -> np.ndarray:
+        """Load a frame from the cache."""
         try:
-            with self._frame_cache.begin() as txn:
-                frame_buffer = txn.get(frame_key)
-                if frame_buffer is None:
-                    raise KeyError(f"Frame {frame_key} not found in cache")
+            # Get the cache filename
+            cache_filename = f"dataset_{self.dataset_name}_video.lmdb"
+            db_dir = os.path.join(self.data_split_folder, cache_filename)
+            
+            # Check if the database exists
+            if not os.path.exists(db_dir):
+                print(f"LMDB database not found at {db_dir}. Building cache...")
+                self._build_caches()
+            
+            # Open the database
+            env = lmdb.open(db_dir, create=False, subdir=True, readonly=True, lock=False)
+            
+            # Get the frame from the cache
+            with env.begin() as txn:
+                frame_key = f"{traj_name}_{frame_idx}".encode()
+                frame_data = txn.get(frame_key)
+                if frame_data is None:
+                    print(f"Frame not found in cache: {traj_name}_{frame_idx}")
+                    return None
                     
-                # Decode PNG frame
-                frame_array = np.frombuffer(frame_buffer, dtype=np.uint8)
-                frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                
-                # Resize and convert to tensor format
-                frame_tensor = torch.from_numpy(frame).permute(2, 0, 1).float() / 255.0
-                
-                # Resize to target image size if needed
-                if frame_tensor.shape[1:] != self.image_size:
-                    frame_tensor = TF.resize(frame_tensor, self.image_size)
-                
-                return frame_tensor
+                # Decode the frame
+                try:
+                    # Convert bytes to BytesIO object
+                    frame_bytes = io.BytesIO(frame_data)
+                    # Use img_path_to_data to properly handle image loading and resizing
+                    frame = img_path_to_data(frame_bytes, self.image_size)
+                    if frame is None:
+                        print(f"Failed to decode frame: {traj_name}_{frame_idx}")
+                        return None
+                    
+                    return frame
+                except Exception as e:
+                    print(f"Error decoding frame {traj_name}_{frame_idx}: {str(e)}")
+                    return None
                 
         except Exception as e:
-            print(f"Failed to load frame for {trajectory_name} at time {time}: {e}")
-            # Return a blank frame as fallback
-            return torch.zeros(3, *self.image_size)
+            print(f"Error loading frame {traj_name}_{frame_idx}: {str(e)}")
+            return None
 
     def _compute_actions(self, traj_data, curr_time, goal_time):
         start_index = curr_time
@@ -367,11 +389,20 @@ class ViNT_Dataset(Dataset):
             raise ValueError(f"Invalid context type {self.context_type}")
 
         # Load context frames from the video
-        context_frames = [self._load_frame(f, t) for f, t in context]
+        context_frames = []
+        for f, t in context:
+            frame = self._load_frame(f, t)
+            if frame is not None:
+                context_frames.append(frame)
+        
+        # Concatenate context frames
         obs_image = torch.cat(context_frames)
 
         # Load goal frame from the video
         goal_image = self._load_frame(f_goal, goal_time)
+        if goal_image is None:
+            # Create a blank tensor if frame loading failed
+            goal_image = torch.zeros((3,) + self.image_size)
 
         # Load other trajectory data
         curr_traj_data = self._get_trajectory(f_curr)
@@ -403,8 +434,8 @@ class ViNT_Dataset(Dataset):
         )
 
         return (
-            torch.as_tensor(obs_image, dtype=torch.float32),
-            torch.as_tensor(goal_image, dtype=torch.float32),
+            obs_image,
+            goal_image,
             actions_torch,
             torch.as_tensor(distance, dtype=torch.int64),
             torch.as_tensor(goal_pos, dtype=torch.float32),

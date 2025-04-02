@@ -4,7 +4,7 @@ load_run: vint_test/log_run_1
 # training setup
 use_wandb: False # set to false if you don't want to log to wandb
 train: False
-batch_size: 256
+batch_size: 1
 epochs: 100
 gpu_ids: [0]
 num_workers: 12
@@ -112,6 +112,6 @@ datasets:
 ## =0 turns off
 print_log_freq: 100 # in iterations
 image_log_freq: 1000 #0 # in iterations
-num_images_log: 8 #0 
+num_images_log: 10
 pairwise_test_freq: 0 # in epochs
 eval_fraction: 0.25

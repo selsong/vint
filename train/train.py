@@ -1,5 +1,5 @@
 import os
-import wandb
+# import wandb
 import argparse
 import numpy as np
 import yaml
@@ -303,17 +303,18 @@ if __name__ == "__main__":
     )
 
     if config["use_wandb"]:
-        wandb.login()
-        wandb.init(
-            project=config["project_name"],
-            settings=wandb.Settings(start_method="fork"),
-            entity="gnmv2", # TODO: change this to your wandb entity
-        )
-        wandb.save(args.config, policy="now")  # save the config file
-        wandb.run.name = config["run_name"]
-        # update the wandb args with the training configurations
-        if wandb.run:
-            wandb.config.update(config)
+        # wandb.login()
+        # wandb.init(
+        #     project=config["project_name"],
+        #     settings=wandb.Settings(start_method="fork"),
+        #     entity="gnmv2", # change this to your wandb entity
+        # )
+        # wandb.save(args.config, policy="now")  # save the config file
+        # wandb.run.name = config["run_name"]
+        # # update the wandb args with the training configurations
+        # if wandb.run:
+        #     wandb.config.update(config)
+        pass
 
     print(config)
     main(config)

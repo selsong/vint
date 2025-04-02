@@ -53,17 +53,11 @@ def visualize_trajectory_progression(
         use_wandb: whether to use wandb for logging
         display: whether to display the images
     """
-    visualize_path = os.path.join(
-        save_folder, "visualize", "progression", f"epoch{epoch}", trajectory_name
-    )
-    if not os.path.exists(visualize_path):
-        os.makedirs(visualize_path)
-
-    # Load the dataset to access frames
+    # Create dataset object
     from vint_train.data.vint_dataset import ViNT_Dataset
     dataset = ViNT_Dataset(
         data_folder=f"/bigdata/selina/vint_release/train/recon_videos",
-        data_split_folder=f"/bigdata/selina/vint_release/train/vint_train/data/data_splits/{dataset_name}/train",
+        data_split_folder=f"/bigdata/selina/vint_release/train/vint_train/data/data_splits/recon/test",
         dataset_name=dataset_name,
         image_size=(640, 480),  # Default image size
         waypoint_spacing=1,  # Integer value for range step
@@ -77,75 +71,87 @@ def visualize_trajectory_progression(
         context_size=1,  # Default value
         context_type="temporal",  # Default value
     )
-
+    
     # Get trajectory data
     traj_data = dataset._get_trajectory(trajectory_name)
     
+    # Get the actual number of frames in the trajectory
+    num_frames = len(traj_data["position"])
+    
+    # Adjust end_time if it's out of bounds
+    end_time = min(end_time, num_frames - 1)
+    
     # Sample frames at regular intervals
-    num_frames = 10  # Number of intermediate frames to show
-    frame_indices = np.linspace(start_time, end_time, num_frames, dtype=int)
+    num_frames_to_show = 20  # Number of intermediate frames to show
+    frame_indices = np.linspace(start_time, end_time, num_frames_to_show, dtype=int)
     
     wandb_list = []
     for i, frame_idx in enumerate(frame_indices):
-        # Load the frame
-        frame = dataset._load_frame(trajectory_name, frame_idx)
-        frame = numpy_to_img(frame)
-        
-        # Get the current position and yaw
-        curr_pos = traj_data["position"][frame_idx]
-        curr_yaw = traj_data["yaw"][frame_idx]
-        
-        # Transform waypoints to current frame's coordinate system
-        if normalized:
-            pred_waypoints = pred_waypoints * data_config[dataset_name]["metric_waypoint_spacing"]
-            label_waypoints = label_waypoints * data_config[dataset_name]["metric_waypoint_spacing"]
-        
-        # Create figure with 3 subplots
-        fig, ax = plt.subplots(1, 3)
-        
-        # Plot trajectories in 2D space
-        plot_trajs_and_points(
-            ax[0],
-            [pred_waypoints, label_waypoints],
-            [np.array([0, 0]), curr_pos],
-            traj_colors=[CYAN, MAGENTA],
-            point_colors=[GREEN, RED],
-            traj_labels=["prediction", "ground truth"],
-            point_labels=["robot", "current position"]
-        )
-        
-        # Plot trajectories on image
-        plot_trajs_and_points_on_image(
-            ax[1],
-            frame,
-            dataset_name,
-            [pred_waypoints, label_waypoints],
-            [np.array([0, 0]), curr_pos],
-            traj_colors=[CYAN, MAGENTA],
-            point_colors=[GREEN, RED]
-        )
-        
-        # Show goal image
-        goal_frame = dataset._load_frame(trajectory_name, end_time)
-        goal_frame = numpy_to_img(goal_frame)
-        ax[2].imshow(goal_frame)
-        
-        fig.set_size_inches(18.5, 10.5)
-        ax[0].set_title("Action Prediction")
-        ax[1].set_title(f"Frame {frame_idx}")
-        ax[2].set_title("Goal")
-        
-        save_path = os.path.join(visualize_path, f"frame_{i:03d}.png")
-        fig.savefig(save_path, bbox_inches="tight")
-        
-        if use_wandb:
-            wandb_list.append(wandb.Image(save_path))
+        try:
+            # Load the frame
+            frame = dataset._load_frame(trajectory_name, frame_idx)
+            if frame is None:  # If frame loading failed
+                print(f"Skipping frame {frame_idx} for {trajectory_name} due to loading error")
+                continue
+                
+            frame = numpy_to_img(frame)
             
-        if not display:
-            plt.close(fig)
+            # Get the current position and yaw
+            curr_pos = traj_data["position"][frame_idx]
+            curr_yaw = traj_data["yaw"][frame_idx]
             
-    if use_wandb:
-        wandb.log({f"trajectory_progression_{trajectory_name}": wandb_list}, commit=False)
+            # Transform waypoints to current frame's coordinate system
+            if normalized:
+                pred_waypoints = pred_waypoints * data_config[dataset_name]["metric_waypoint_spacing"]
+                label_waypoints = label_waypoints * data_config[dataset_name]["metric_waypoint_spacing"]
+            
+            # Create figure with 3 subplots
+            fig, ax = plt.subplots(1, 3)
+            
+            # Plot trajectories in 2D space
+            plot_trajs_and_points(
+                ax[0],
+                [pred_waypoints, label_waypoints],
+                [np.array([0, 0]), curr_pos],
+                traj_colors=[CYAN, MAGENTA],
+                point_colors=[GREEN, RED],
+                traj_labels=["prediction", "ground truth"],
+                point_labels=["robot", "current position"]
+            )
+            
+            # Plot trajectories on image
+            plot_trajs_and_points_on_image(
+                ax[1],
+                frame,
+                dataset_name,
+                [pred_waypoints, label_waypoints],
+                [np.array([0, 0]), curr_pos],
+                traj_colors=[CYAN, MAGENTA],
+                point_colors=[GREEN, RED],
+            )
+            
+            # Plot goal image
+            goal_frame = dataset._load_frame(trajectory_name, end_time)
+            if goal_frame is not None:
+                goal_frame = numpy_to_img(goal_frame)
+                ax[2].imshow(goal_frame)
+                ax[2].set_title("Goal Image")
+            ax[2].axis("off")
+            
+            # Save the figure
+            save_path = os.path.join(save_folder, f"progression_{i}.png")
+            plt.savefig(save_path)
+            plt.close()
+            
+            if use_wandb:
+                wandb_list.append(wandb.Image(save_path))
+                
+        except Exception as e:
+            print(f"Error processing frame {frame_idx} for {trajectory_name}: {str(e)}")
+            continue
+    
+    if use_wandb and wandb_list:
+        wandb.log({f"trajectory_progression_{trajectory_name}": wandb_list})
 
 
 def visualize_traj_pred(
@@ -203,7 +209,9 @@ def visualize_traj_pred(
 
     batch_size = batch_obs_images.shape[0]
     wandb_list = []
-    for i in range(min(batch_size, num_images_preds)):
+    
+    # Generate progression visualizations for first 10 examples
+    for i in range(min(10, batch_size)):
         obs_img = numpy_to_img(batch_obs_images[i])
         goal_img = numpy_to_img(batch_goal_images[i])
         dataset_name = dataset_names[int(dataset_indices[i])]
@@ -237,7 +245,7 @@ def visualize_traj_pred(
             from vint_train.data.vint_dataset import ViNT_Dataset
             dataset = ViNT_Dataset(
                 data_folder=f"/bigdata/selina/vint_release/train/recon_videos",
-                data_split_folder=f"/bigdata/selina/vint_release/train/vint_train/data/data_splits/recon/train",
+                data_split_folder=f"/bigdata/selina/vint_release/train/vint_train/data/data_splits/recon/test",
                 dataset_name=dataset_name,
                 image_size=(640, 480),  # Default image size
                 waypoint_spacing=1,  # Integer value for range step
@@ -256,6 +264,10 @@ def visualize_traj_pred(
             f_curr, curr_time, _ = dataset.index_to_data[i]
             f_goal, goal_time, _ = dataset._sample_goal(f_curr, curr_time, dataset.max_dist_cat)
             
+            # Create a subdirectory for this example's progression images
+            progression_dir = os.path.join(save_folder, f"progression_{i}")
+            os.makedirs(progression_dir, exist_ok=True)
+            
             # Visualize the progression
             visualize_trajectory_progression(
                 dataset_name=dataset_name,
@@ -264,7 +276,7 @@ def visualize_traj_pred(
                 end_time=goal_time,
                 pred_waypoints=pred_waypoints,
                 label_waypoints=label_waypoints,
-                save_folder=save_folder,
+                save_folder=progression_dir,
                 epoch=epoch,
                 normalized=normalized,
                 use_wandb=use_wandb,
@@ -273,6 +285,39 @@ def visualize_traj_pred(
             
         if use_wandb:
             wandb_list.append(wandb.Image(save_path))
+            
+    # Continue with the rest of the batch for regular visualization
+    for i in range(min(batch_size, num_images_preds)):
+        obs_img = numpy_to_img(batch_obs_images[i])
+        goal_img = numpy_to_img(batch_goal_images[i])
+        dataset_name = dataset_names[int(dataset_indices[i])]
+        goal_pos = batch_goals[i]
+        pred_waypoints = batch_pred_waypoints[i]
+        label_waypoints = batch_label_waypoints[i]
+
+        if normalized:
+            pred_waypoints *= data_config[dataset_name]["metric_waypoint_spacing"]
+            label_waypoints *= data_config[dataset_name]["metric_waypoint_spacing"]
+            goal_pos *= data_config[dataset_name]["metric_waypoint_spacing"]
+
+        save_path = None
+        if visualize_path is not None:
+            save_path = os.path.join(visualize_path, f"{str(i).zfill(4)}.png")
+
+        compare_waypoints_pred_to_label(
+            obs_img,
+            goal_img,
+            dataset_name,
+            goal_pos,
+            pred_waypoints,
+            label_waypoints,
+            save_path,
+            display,
+        )
+        
+        if use_wandb:
+            wandb_list.append(wandb.Image(save_path))
+            
     if use_wandb:
         wandb.log({f"{eval_type}_action_prediction": wandb_list}, commit=False)
 
