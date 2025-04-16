@@ -22,6 +22,7 @@ sys.path.append('/bigdata/selina/vint_release')
 
 from vint_train.models.gnm import GNM
 from vint_train.models.vint import ViNT
+from vint_train.models.nomad import NoMaD
 from vint_train.models import vint
 from vint_train.data.vint_dataset import ViNT_Dataset
 from vint_train.training.train_eval_loop import (

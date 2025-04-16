@@ -1,1 +1,1 @@
-from vint_train.models.vint.vint import *
+from .vint import ViNT

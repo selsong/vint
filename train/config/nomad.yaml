@@ -1,5 +1,6 @@
 project_name: nomad
-run_name: nomad
+run_name: nlog
+load_run: nomad/nlog/
 
 # training setup
 model: nomad

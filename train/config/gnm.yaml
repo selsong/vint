@@ -2,6 +2,7 @@
 
 project_name: vint-release
 run_name: gnm
+load_run: vint-release/gnm/
 model: gnm
 
 # training setup
