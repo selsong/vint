@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Base directory containing the progression images
-BASE_DIR="/p0/data/selina/vint_release/train/logs/vint_test/log_run_1_2025_04_01_22_26_42"
+BASE_DIR="/p0/data/selina/vint_release/train/logs/vint_test/log_run_1_2025_04_16_00_01_52"
 
 echo "Looking for progression directories in: $BASE_DIR"
 

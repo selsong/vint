@@ -36,6 +36,7 @@ def visualize_trajectory_progression(
     normalized: bool = True,
     use_wandb: bool = True,
     display: bool = False,
+    eval_type: str = "test",
 ):
     """
     Visualize the progression of the robot along the trajectory by showing intermediate frames.
@@ -52,12 +53,14 @@ def visualize_trajectory_progression(
         normalized: whether the waypoints are normalized
         use_wandb: whether to use wandb for logging
         display: whether to display the images
+        eval_type: type of evaluation (train or test)
     """
-    # Create dataset object
+    # Create dataset object with correct data split folder
     from vint_train.data.vint_dataset import ViNT_Dataset
+    data_split = "train" if "train" in eval_type else "test"
     dataset = ViNT_Dataset(
         data_folder=f"/bigdata/selina/vint_release/train/recon_videos",
-        data_split_folder=f"/bigdata/selina/vint_release/train/vint_train/data/data_splits/recon/test",
+        data_split_folder=f"/bigdata/selina/vint_release/train/vint_train/data/data_splits/recon/{data_split}",
         dataset_name=dataset_name,
         image_size=(640, 480),  # Default image size
         waypoint_spacing=1,  # Integer value for range step
@@ -83,7 +86,12 @@ def visualize_trajectory_progression(
     
     # Sample frames at regular intervals
     num_frames_to_show = 20  # Number of intermediate frames to show
-    frame_indices = np.linspace(start_time, end_time, num_frames_to_show, dtype=int)
+    #prev disconnected
+    # frame_indices = np.linspace(start_time, end_time, num_frames_to_show, dtype=int)
+
+    # new continuous sampling
+    frame_indices = list(range(start_time, end_time + 1))
+
     
     wandb_list = []
     for i, frame_idx in enumerate(frame_indices):
@@ -106,28 +114,29 @@ def visualize_trajectory_progression(
                 label_waypoints = label_waypoints * data_config[dataset_name]["metric_waypoint_spacing"]
             
             # Create figure with 3 subplots
-            fig, ax = plt.subplots(1, 3)
+            fig, ax = plt.subplots(1, 3, figsize=(18.5, 10.5))
             
-            # Plot trajectories in 2D space
+            # Plot trajectories in 2D space with original colors
             plot_trajs_and_points(
                 ax[0],
                 [pred_waypoints, label_waypoints],
                 [np.array([0, 0]), curr_pos],
-                traj_colors=[CYAN, MAGENTA],
+                traj_colors=[CYAN, MAGENTA],  # Keep original colors
                 point_colors=[GREEN, RED],
                 traj_labels=["prediction", "ground truth"],
                 point_labels=["robot", "current position"]
             )
             
-            # Plot trajectories on image
+            # Plot trajectories on image with arrows
             plot_trajs_and_points_on_image(
                 ax[1],
                 frame,
                 dataset_name,
                 [pred_waypoints, label_waypoints],
                 [np.array([0, 0]), curr_pos],
-                traj_colors=[CYAN, MAGENTA],
+                traj_colors=[CYAN, MAGENTA],  # Keep original colors
                 point_colors=[GREEN, RED],
+                draw_arrows=True  # Add arrows to the visualization
             )
             
             # Plot goal image
@@ -138,9 +147,14 @@ def visualize_trajectory_progression(
                 ax[2].set_title("Goal Image")
             ax[2].axis("off")
             
+            # Set titles for all subplots
+            ax[0].set_title("Action Prediction")
+            ax[1].set_title("Observation")
+            ax[2].set_title("Goal")
+            
             # Save the figure
             save_path = os.path.join(save_folder, f"progression_{i}.png")
-            plt.savefig(save_path)
+            plt.savefig(save_path, bbox_inches="tight")
             plt.close()
             
             if use_wandb:
@@ -243,9 +257,10 @@ def visualize_traj_pred(
         if save_folder is not None:
             # Get the trajectory name and times from the dataset
             from vint_train.data.vint_dataset import ViNT_Dataset
+            data_split = "train" if "train" in eval_type else "test"
             dataset = ViNT_Dataset(
                 data_folder=f"/bigdata/selina/vint_release/train/recon_videos",
-                data_split_folder=f"/bigdata/selina/vint_release/train/vint_train/data/data_splits/recon/test",
+                data_split_folder=f"/bigdata/selina/vint_release/train/vint_train/data/data_splits/recon/{data_split}",
                 dataset_name=dataset_name,
                 image_size=(640, 480),  # Default image size
                 waypoint_spacing=1,  # Integer value for range step
@@ -280,7 +295,8 @@ def visualize_traj_pred(
                 epoch=epoch,
                 normalized=normalized,
                 use_wandb=use_wandb,
-                display=display
+                display=display,
+                eval_type=eval_type  # Pass the eval_type
             )
             
         if use_wandb:
@@ -393,6 +409,7 @@ def plot_trajs_and_points_on_image(
     list_points: list,
     traj_colors: list = [CYAN, MAGENTA],
     point_colors: list = [RED, GREEN],
+    draw_arrows: bool = False,
 ):
     """
     Plot trajectories and points on an image. If there is no configuration for the camera interinstics of the dataset, the image will be plotted as is.
@@ -404,6 +421,7 @@ def plot_trajs_and_points_on_image(
         list_points: list of points, each point is a numpy array of shape (2,)
         traj_colors: list of colors for trajectories
         point_colors: list of colors for points
+        draw_arrows: whether to draw arrows on the image
     """
     assert len(list_trajs) <= len(traj_colors), "Not enough colors for trajectories"
     assert len(list_points) <= len(point_colors), "Not enough colors for points"
@@ -467,6 +485,19 @@ def plot_trajs_and_points_on_image(
         ax.yaxis.set_visible(False)
         ax.set_xlim((0.5, VIZ_IMAGE_SIZE[0] - 0.5))
         ax.set_ylim((VIZ_IMAGE_SIZE[1] - 0.5, 0.5))
+
+    if draw_arrows:
+        for i, traj in enumerate(list_trajs):
+            if traj.shape[1] > 2:  # traj data also includes yaw of the robot
+                bearings = gen_bearings_from_waypoints(traj)
+                ax.quiver(
+                    traj[::10, 0],
+                    traj[::10, 1],
+                    bearings[::10, 0],
+                    bearings[::10, 1],
+                    color=traj_colors[i] * 0.5,
+                    scale=1.0,
+                )
 
 
 def plot_trajs_and_points(
