@@ -1,7 +1,11 @@
 #!/bin/bash
 
 # Base directory containing the progression images
-BASE_DIR="/p0/data/selina/vint_release/train/logs/vint_test/log_run_1_2025_04_16_00_01_52"
+#VINT
+#BASE_DIR="/p0/data/selina/vint_release/train/logs/vint_test/log_run_1_2025_04_16_00_01_52"
+
+#GNM
+BASE_DIR="/p0/data/selina/vint_release/train/logs/vint-release/gnm_2025_04_16_01_36_24"
 
 echo "Looking for progression directories in: $BASE_DIR"
 
@@ -35,6 +39,7 @@ for prog_dir in "$BASE_DIR"/progression_*; do
             # -c:v libx264 uses H.264 codec
             # -pix_fmt yuv420p ensures compatibility with most video players
             ffmpeg -y -framerate 10 -i "$prog_dir/progression_%d.png" \
+                -vf "pad=ceil(iw/2)*2:ih" \
                 -c:v libx264 -pix_fmt yuv420p \
                 "$output_video"
             

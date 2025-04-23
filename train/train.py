@@ -1,5 +1,5 @@
 import os
-# import wandb
+import wandb
 import argparse
 import numpy as np
 import yaml
@@ -14,21 +14,25 @@ from torchvision import transforms
 import torch.backends.cudnn as cudnn
 from warmup_scheduler import GradualWarmupScheduler
 
-"""
-this is the original train file from vint repo
-"""
-import sys
-sys.path.append('/bigdata/selina/vint_release')
+from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+from diffusers.optimization import get_scheduler
 
-from vint_train.models.gnm import GNM
-from vint_train.models.vint import ViNT
-from vint_train.models.nomad import NoMaD
-from vint_train.models import vint
+"""
+IMPORT YOUR MODEL HERE
+"""
+from vint_train.models.gnm.gnm import GNM
+from vint_train.models.vint.vint import ViNT
+from vint_train.models.vint.vit import ViT
+from vint_train.models.nomad.nomad import NoMaD, DenseNetwork
+from vint_train.models.nomad.nomad_vint import NoMaD_ViNT, replace_bn_with_gn
+from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
+
+
 from vint_train.data.vint_dataset import ViNT_Dataset
 from vint_train.training.train_eval_loop import (
     train_eval_loop,
+    train_eval_loop_nomad,
     load_model,
-    count_parameters,
 )
 
 
@@ -161,10 +165,60 @@ def main(config):
             mha_num_attention_layers=config["mha_num_attention_layers"],
             mha_ff_dim_factor=config["mha_ff_dim_factor"],
         )
+    elif config["model_type"] == "nomad":
+        if config["vision_encoder"] == "nomad_vint":
+            vision_encoder = NoMaD_ViNT(
+                obs_encoding_size=config["encoding_size"],
+                context_size=config["context_size"],
+                mha_num_attention_heads=config["mha_num_attention_heads"],
+                mha_num_attention_layers=config["mha_num_attention_layers"],
+                mha_ff_dim_factor=config["mha_ff_dim_factor"],
+            )
+            vision_encoder = replace_bn_with_gn(vision_encoder)
+        elif config["vision_encoder"] == "vib": 
+            vision_encoder = ViB(
+                obs_encoding_size=config["encoding_size"],
+                context_size=config["context_size"],
+                mha_num_attention_heads=config["mha_num_attention_heads"],
+                mha_num_attention_layers=config["mha_num_attention_layers"],
+                mha_ff_dim_factor=config["mha_ff_dim_factor"],
+            )
+            vision_encoder = replace_bn_with_gn(vision_encoder)
+        elif config["vision_encoder"] == "vit": 
+            vision_encoder = ViT(
+                obs_encoding_size=config["encoding_size"],
+                context_size=config["context_size"],
+                image_size=config["image_size"],
+                patch_size=config["patch_size"],
+                mha_num_attention_heads=config["mha_num_attention_heads"],
+                mha_num_attention_layers=config["mha_num_attention_layers"],
+            )
+            vision_encoder = replace_bn_with_gn(vision_encoder)
+        else: 
+            raise ValueError(f"Vision encoder {config['vision_encoder']} not supported")
+            
+        noise_pred_net = ConditionalUnet1D(
+                input_dim=2,
+                global_cond_dim=config["encoding_size"],
+                down_dims=config["down_dims"],
+                cond_predict_scale=config["cond_predict_scale"],
+            )
+        dist_pred_network = DenseNetwork(embedding_dim=config["encoding_size"])
+        
+        model = NoMaD(
+            vision_encoder=vision_encoder,
+            noise_pred_net=noise_pred_net,
+            dist_pred_net=dist_pred_network,
+        )
+
+        noise_scheduler = DDPMScheduler(
+            num_train_timesteps=config["num_diffusion_iters"],
+            beta_schedule='squaredcos_cap_v2',
+            clip_sample=True,
+            prediction_type='epsilon'
+        )
     else:
         raise ValueError(f"Model {config['model']} not supported")
-
-    count_parameters(model)  # print number of parameters
 
     if config["clipping"]:
         print("Clipping gradients to", config["max_norm"])
@@ -231,8 +285,9 @@ def main(config):
         print("Loading model from ", load_project_folder)
         latest_path = os.path.join(load_project_folder, "latest.pth")
         latest_checkpoint = torch.load(latest_path) #f"cuda:{}" if torch.cuda.is_available() else "cpu")
-        load_model(model, latest_checkpoint)
-        current_epoch = latest_checkpoint["epoch"] + 1
+        load_model(model, config["model_type"], latest_checkpoint)
+        if "epoch" in latest_checkpoint:
+            current_epoch = latest_checkpoint["epoch"] + 1
 
     # Multi-GPU
     if len(config["gpu_ids"]) > 1:
@@ -240,31 +295,58 @@ def main(config):
     model = model.to(device)
 
     if "load_run" in config:  # load optimizer and scheduler after data parallel
-        optimizer.load_state_dict(latest_checkpoint["optimizer"].state_dict())
-        if scheduler is not None:
+        if "optimizer" in latest_checkpoint:
+            optimizer.load_state_dict(latest_checkpoint["optimizer"].state_dict())
+        if scheduler is not None and "scheduler" in latest_checkpoint:
             scheduler.load_state_dict(latest_checkpoint["scheduler"].state_dict())
 
-    train_eval_loop(
-        train_model=config["train"],
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        train_loader=train_loader,
-        test_dataloaders=test_dataloaders,
-        transform=transform,
-        epochs=config["epochs"],
-        device=device,
-        project_folder=config["project_folder"],
-        normalized=config["normalize"],
-        print_log_freq=config["print_log_freq"],
-        image_log_freq=config["image_log_freq"],
-        num_images_log=config["num_images_log"],
-        current_epoch=current_epoch,
-        learn_angle=config["learn_angle"],
-        alpha=config["alpha"],
-        use_wandb=config["use_wandb"],
-        eval_fraction=config["eval_fraction"],
-    )
+    if config["model_type"] == "vint" or config["model_type"] == "gnm": 
+        train_eval_loop(
+            train_model=config["train"],
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            dataloader=train_loader,
+            test_dataloaders=test_dataloaders,
+            transform=transform,
+            epochs=config["epochs"],
+            device=device,
+            project_folder=config["project_folder"],
+            normalized=config["normalize"],
+            print_log_freq=config["print_log_freq"],
+            image_log_freq=config["image_log_freq"],
+            num_images_log=config["num_images_log"],
+            current_epoch=current_epoch,
+            learn_angle=config["learn_angle"],
+            alpha=config["alpha"],
+            use_wandb=config["use_wandb"],
+            eval_fraction=config["eval_fraction"],
+        )
+    else:
+        train_eval_loop_nomad(
+            train_model=False, # set train to false to skip training
+            model=model,
+            optimizer=optimizer,
+            lr_scheduler=scheduler,
+            noise_scheduler=noise_scheduler,
+            train_loader=train_loader,
+            test_dataloaders=test_dataloaders,
+            transform=transform,
+            goal_mask_prob=config["goal_mask_prob"],
+            epochs=config["epochs"],
+            device=device,
+            project_folder=config["project_folder"],
+            print_log_freq=config["print_log_freq"],
+            wandb_log_freq=config["wandb_log_freq"],
+            image_log_freq=config["image_log_freq"],
+            num_images_log=config["num_images_log"],
+            current_epoch=current_epoch,
+            alpha=float(config["alpha"]),
+            use_wandb=config["use_wandb"],
+            eval_fraction=config["eval_fraction"],
+            eval_freq=config["eval_freq"],
+        )
+
     print("FINISHED TRAINING")
 
 
@@ -304,18 +386,17 @@ if __name__ == "__main__":
     )
 
     if config["use_wandb"]:
-        # wandb.login()
-        # wandb.init(
-        #     project=config["project_name"],
-        #     settings=wandb.Settings(start_method="fork"),
-        #     entity="gnmv2", # change this to your wandb entity
-        # )
-        # wandb.save(args.config, policy="now")  # save the config file
-        # wandb.run.name = config["run_name"]
-        # # update the wandb args with the training configurations
-        # if wandb.run:
-        #     wandb.config.update(config)
-        pass
+        wandb.login()
+        wandb.init(
+            project=config["project_name"],
+            settings=wandb.Settings(start_method="fork"),
+            entity="gnmv2", # TODO: change this to your wandb entity
+        )
+        wandb.save(args.config, policy="now")  # save the config file
+        wandb.run.name = config["run_name"]
+        # update the wandb args with the training configurations
+        if wandb.run:
+            wandb.config.update(config)
 
     print(config)
     main(config)
