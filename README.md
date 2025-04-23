@@ -1,7 +1,5 @@
-<<<<<<< HEAD
-# vint
-Visual Navigation Transformer (Zhou Lab, UCLA)
-=======
+
+# Visual Navigation Transformer (Zhou Lab, UCLA)
 # ViNT: A Foundation Model for Visual Navigation
 #### Dhruv Shah*, Ajay Sridhar*, Nitish Dashora*, Kyle Stachowicz, Kevin Black, Noriaki Hirose, Sergey Levine
 
